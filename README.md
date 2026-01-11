@@ -67,30 +67,34 @@ Extracts job links from the email body using a regex:
 Iterates through each extracted URL so every job gets a separate evaluation and output row.
 
 ### 4) Tools — Set Variables
-Creates reusable variables, including:
+Creates reusable variables that structure the OpenAI prompt:
 
-- `profile_context` (candidate background + constraints)
-- `job_input` (instructions: find *only* the job matching the current URL inside the email)
-- `job_url` (the current extracted URL)
+- **`profile_context`** — Candidate/user background, experience level, key constraints (e.g., "Backend automation engineer with 3+ years Python, seeking remote roles")
+- **`scoring_instructions`** — Instructions for how the LLM should evaluate and score (e.g., "Score 1-10 based on technical match, backend focus, and automation relevance")
+- **`scoring_rubric`** — Detailed criteria defining what constitutes each tier/score level (e.g., "Tier-1: Backend automation with code ownership, API development. Tier-2: Systems analyst, technical operations...")
+- **`job_input`** — Instructions to extract only the specific job matching the current URL from the email body
+- **`job_url`** — The current extracted URL being evaluated
+
+**Purpose:** These variables separate business logic (evaluation criteria) from execution logic (API calls, parsing), making the prompt easy to customize without touching the scenario structure.
 
 ### 5) OpenAI — Generate a Response (JSON)
 Sends the prompt + context and enforces structured output:
 
 - Model: `gpt-4o-mini`
 - Response format: `json_object`
-- Max output tokens: `500`
+- Max output tokens: `1500`
 
 **Output schema (required):**
 ```json
 {
-  "job_title": "string",
-  "company": "string",
-  "job_url": "string",
-  "ideal_alignment_score": 1,
-  "tier": "Tier-1 | Tier-2 | Below target",
-  "primary_reasons": ["..."],
-  "concerns": ["..."],
-  "recommendation": "Apply | Consider | Skip"
+  "job_title": "<extract job title from email>",
+  "company": "<extract company name from email>",
+  "job_url": "<the URL from the evaluation request>",
+  "ideal_alignment_score": <number 1-10>,  ← Specifies range
+  "tier": "<Tier-1 | Tier-2 | Below target>",
+  "primary_reasons": ["<reason 1>", "<reason 2>", "<reason 3>"],
+  "concerns": ["<concern 1>", "<concern 2>"],
+  "recommendation": "<Apply | Consider | Skip>"
 }
 ```
 
@@ -251,9 +255,12 @@ Planned upgrades (typical next steps):
    - Gmail (inbox with target emails)
    - OpenAI (API key required)
    - Google Sheets (for logging)
-3. **Customize variables in Module 4:**
-   - Update `profile_context` with your criteria
-   - Modify `scoring_rubric` for your use case
+3. **Customize variables in Module 4 (Set Variables):**
+   - Update `profile_context` with your background/requirements
+   - Modify `scoring_instructions` with your evaluation approach
+   - Update `scoring_rubric` with tier definitions for your use case
+   - Adjust `job_input` instructions if needed (default: extracts job matching URL)
+   - `job_url` is auto-populated from Iterator (no change needed)
 4. **Test with sample email**
 5. **Adjust prompt based on results**
 
