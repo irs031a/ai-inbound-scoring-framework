@@ -87,14 +87,14 @@ Sends the prompt + context and enforces structured output:
 **Output schema (required):**
 ```json
 {
-  "job_title": "<extract job title from email>",
-  "company": "<extract company name from email>",
-  "job_url": "<the URL from the evaluation request>",
-  "ideal_alignment_score": <number 1-10>,  ← Specifies range
-  "tier": "<Tier-1 | Tier-2 | Below target>",
-  "primary_reasons": ["<reason 1>", "<reason 2>", "<reason 3>"],
-  "concerns": ["<concern 1>", "<concern 2>"],
-  "recommendation": "<Apply | Consider | Skip>"
+  "job_title": "string",
+  "company": "string",
+  "job_url": "string",
+  "ideal_alignment_score": 7,  // integer 1-10
+  "tier": "Tier-1 | Tier-2 | Below target",
+  "primary_reasons": ["reason 1", "reason 2", "reason 3"],
+  "concerns": ["concern 1", "concern 2"],
+  "recommendation": "Apply | Consider | Skip"
 }
 ```
 
@@ -255,14 +255,18 @@ Planned upgrades (typical next steps):
    - Gmail (inbox with target emails)
    - OpenAI (API key required)
    - Google Sheets (for logging)
-3. **Customize variables in Module 4 (Set Variables):**
-   - Update `profile_context` with your background/requirements
-   - Modify `scoring_instructions` with your evaluation approach
-   - Update `scoring_rubric` with tier definitions for your use case
-   - Adjust `job_input` instructions if needed (default: extracts job matching URL)
-   - `job_url` is auto-populated from Iterator (no change needed)
-4. **Test with sample email**
-5. **Adjust prompt based on results**
+3. **Customize evaluation logic in Module 4 (Set Variables):**
+   - **`profile_context`** — Your background, experience, constraints
+   - **`scoring_instructions`** — How to evaluate (scoring approach, 1-10 scale)
+   - **`scoring_rubric`** — Tier/score definitions for your domain
+   - **`job_input`** / **`job_url`** — Usually no changes needed (auto-populated)
+4. **Configure Gmail filter in Module 1:**
+   - Update sender email if not LinkedIn (`jobalerts-noreply@linkedin.com`)
+   - Modify keyword filter for your use case (default: `automation remote`)
+   - Adjust check frequency if needed (default: every 2 hours)
+5. **Test with sample email**
+6. **Review results in Google Sheets**
+7. **Iterate on prompt based on accuracy**
 
 **Estimated setup time:** 30-60 minutes (excluding prompt tuning)
 
