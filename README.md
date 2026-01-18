@@ -1,284 +1,194 @@
 ﻿# AI-Powered Inbound Scoring & Routing Framework (Make.com)
 
-This repository contains a **Make.com scenario blueprint** that turns messy, unstructured inbound messages into **structured, scored decisions** using an LLM (OpenAI) — then logs the results to Google Sheets.
+This repository contains a **Make.com scenario blueprint** that converts messy, unstructured inbound messages into **structured, scored decisions** using an LLM (OpenAI), with results logged to Google Sheets.
 
 It was originally built for **job opportunity screening** from LinkedIn job alert emails, but the same architecture generalizes to:
 
 - Lead qualification (sales / RevOps)
 - Support ticket triage
-- Vendor / supplier evaluation
+- Vendor or supplier evaluation
 - Candidate screening
 - Intake form scoring and routing
 
-The key idea: **LLM judgment + deterministic automation** (logging, retries, controlled failure paths).
+The core idea: **LLM judgment combined with deterministic automation** (logging, retries, validation, and controlled failure paths).
 
 ---
 
 ## Overview
 
 **Input:** New LinkedIn job alert emails (Gmail)  
-**Process:** Extract job URLs → iterate → send job + rubric to OpenAI → receive JSON score  
-**Output:** Append a structured row to Google Sheets for tracking and review
+**Process:** Extract job title → score alignment using OpenAI → receive structured JSON output  
+**Output:** Append a structured row to Google Sheets for tracking and review  
 
-This is **not** a “toy” copy/paste automation — it’s an extensible pattern for making AI outputs reliable inside real workflows.
+This is **not** a copy-paste “AI toy.” It demonstrates how to make LLM outputs **predictable, auditable, and safe** inside real automation workflows.
 
 ---
 
 ## Problem This Solves
 
-When inbound data is unstructured (emails, web forms, chat messages), traditional automations struggle because they need clean fields.
+Inbound data (emails, forms, messages) is typically unstructured and inconsistent, making it difficult to automate decision-making reliably.
 
 This framework:
 
-- Accepts real-world messy text
-- Extracts targets (URLs) deterministically
-- Uses AI to evaluate and produce **structured JSON**
-- Logs results in a consistent schema for review, filtering, and follow-up
+- Accepts messy real-world text
+- Extracts deterministic inputs (job title)
+- Uses AI **only for judgment**, not control flow
+- Forces **structured JSON output**
+- Logs results in a stable schema for filtering and review
 
 ---
 
 ## High-Level Architecture
 
 1. **Gmail Trigger** – Watch for new LinkedIn job alert emails  
-2. **Regex Text Parser** – Extract LinkedIn job URLs from the email body  
-3. **Iterator** – Process each extracted URL individually  
-4. **Set Variables** – Inject candidate profile context + scoring rubric + the specific URL to evaluate  
-5. **OpenAI (ChatGPT) Call** – Return **JSON-only** job evaluation  
-6. **JSON Parse (Validation)** – Parse/validate JSON output *(ignore errors to prevent scenario failure)*  
-7. **Google Sheets** – Append a new row with score + reasons + timestamp
 
----
+2. **Regex Text Parser** – Extract job title from the email body  
 
-## Scenario Flow (Make.com)
+3. **Set Variables (Context & Scoring Logic)**  
+   - Candidate profile and constraints  
+   - Tier definitions and scoring rubric  
+   - Alignment rules and dealbreakers  
 
-### 1) Gmail — Watch Emails
-- Watches `INBOX`
-- Filters by sender: `jobalerts-noreply@linkedin.com`
-- Optional keyword filter (example): `automation remote`
-- Pulls full message body
+4. **Set Variables (Job Input Preparation)**  
+   - Normalizes the extracted job title  
+   - Assembles the authoritative input payload for LLM evaluation  
 
-### 2) Text Parser (RegExp)
-Extracts job links from the email body using a regex:
+5. **OpenAI (ChatGPT) Call**  
+   - Evaluates job title alignment  
+   - Returns **JSON-only** structured output  
 
-- Pattern: `https://www\.linkedin\.com/comm/jobs/view/\d+`
-- Global match enabled (captures multiple jobs per email)
+6. **JSON Parse (Validation)**  
+   - Parses structured output  
+   - Ignore-error handler prevents scenario failure on malformed responses  
 
-### 3) Iterator
-Iterates through each extracted URL so every job gets a separate evaluation and output row.
+7. **Data Store (Deduplication Check)**  
+   - Uses a persistent key (job title) to detect previously evaluated roles  
+   - Skips processing if the job title already exists  
+   - Prevents duplicate scoring and duplicate log entries  
 
-### 4) Tools — Set Variables
-Creates reusable variables that structure the OpenAI prompt:
-
-- **`profile_context`** — Candidate/user background, experience level, key constraints (e.g., "Backend automation engineer with 3+ years Python, seeking remote roles")
-- **`scoring_instructions`** — Instructions for how the LLM should evaluate and score (e.g., "Score 1-10 based on technical match, backend focus, and automation relevance")
-- **`scoring_rubric`** — Detailed criteria defining what constitutes each tier/score level (e.g., "Tier-1: Backend automation with code ownership, API development. Tier-2: Systems analyst, technical operations...")
-- **`job_input`** — Instructions to extract only the specific job matching the current URL from the email body
-- **`job_url`** — The current extracted URL being evaluated
-
-**Purpose:** These variables separate business logic (evaluation criteria) from execution logic (API calls, parsing), making the prompt easy to customize without touching the scenario structure.
-
-### 5) OpenAI — Generate a Response (JSON)
-Sends the prompt + context and enforces structured output:
-
-- Model: `gpt-4o-mini`
-- Response format: `json_object`
-- Max output tokens: `1500`
-
-**Output schema (required):**
-```json
-{
-  "job_title": "string",
-  "company": "string",
-  "job_url": "string",
-  "ideal_alignment_score": 7,  // integer 1-10
-  "tier": "Tier-1 | Tier-2 | Below target",
-  "primary_reasons": ["reason 1", "reason 2", "reason 3"],
-  "concerns": ["concern 1", "concern 2"],
-  "recommendation": "Apply | Consider | Skip"
-}
-```
-
-### 6) JSON — Parse JSON (Validation Step)
-Parses `{{5.result}}` (the LLM response).  
-An **Ignore** error handler is attached here so malformed JSON does not crash the run.
-
-> Note: In the current blueprint, Google Sheets maps fields directly from `OpenAI (module 5)` output.  
-> The JSON Parse step is kept as a **validation guard / future-proofing hook** (easy to switch Sheets mapping to module 15 later).
-
-### 7) Google Sheets — Add a Row
-Appends a row with:
-
-- job title
-- company
-- URL
-- score (1–10)
-- tier
-- recommendation
-- primary reasons (joined)
-- concerns (joined)
-- timestamp
+8. **Google Sheets (Logging)**  
+   - Appends a structured row with score, tier, rationale, and timestamp  
 
 ---
 
 ## Error Handling & Reliability
 
 ### OpenAI Module: Break + Retry
+
 A **Break** error handler is attached to the OpenAI module with:
 
-- Retries: **3 attempts**
-- Interval: **5 seconds**
+- **3 retries**
+- **5-second interval**
 
-This improves reliability when the API temporarily fails.
+This protects against transient API failures.
 
 ### JSON Parse Module: Ignore Errors
-An **Ignore** handler is attached to JSON Parse so the scenario doesn’t fail if the LLM returns invalid JSON.
+
+An **Ignore** handler ensures the scenario continues even if the LLM returns invalid JSON.
 
 ---
 
 ## Why This Is Not a “Basic Automation”
 
-Most beginner Make scenarios:
+Typical beginner scenarios:
 
 - Move clean data from A → B
-- Don’t loop through multiple items safely
-- Don’t enforce structured AI output
-- Have no resilience plan for API failures
+- Assume perfect inputs
+- Fail hard on API errors
+- Treat AI output as trustworthy by default
 
 This scenario includes:
 
-- deterministic URL extraction
-- iteration over multiple jobs per message
-- LLM call with **strict JSON schema**
-- explicit retry strategy on the AI step
-- validation step + controlled failure behavior
-- normalized logging to a persistent store (Sheets)
+- Deterministic input normalization
+- Explicit AI trust boundaries
+- JSON-only AI output enforcement
+- Retry logic on external APIs
+- Controlled failure paths
+- Persistent logging for auditability
 
 ---
 
 ## Tech Stack
 
-- **Make.com** (scenario orchestration)
-- **Gmail module** (email trigger)
-- **RegExp parser** (URL extraction)
-- **OpenAI (ChatGPT)** (JSON-based evaluation)
-- **JSON module** (validation / parsing)
-- **Google Sheets** (logging & review)
+- **Make.com** — scenario orchestration  
+- **Gmail module** — inbound trigger  
+- **RegExp parser** — job title extraction  
+- **OpenAI (ChatGPT)** — structured evaluation  
+- **JSON module** — parsing and validation  
+- **Data Store** — deduplication  
+- **Google Sheets** — logging and review  
 
 ---
 
 ## 🔧 Customization Required
 
-**This system is a framework, not a plug-and-play solution.**
+This repository provides a **framework**, not a turnkey product.
 
-Users must customize:
-- **Evaluation prompt** – Define your specific criteria
-- **Scoring logic** – Set thresholds and decision rules
-- **Output schema** – Structure JSON fields for your use case
-- **Routing rules** – Determine what happens at each score/tier *(today it logs to Sheets; routing can be added later)*
+You must customize:
+
+- Evaluation prompt and criteria  
+- Scoring thresholds and tiers  
+- Output schema fields  
+- Routing logic (currently logs only)  
 
 **The architecture is reusable; the business logic is not.**
-
-Example prompts and scoring rubrics are provided as templates only.
 
 ---
 
 ## ⚠️ What’s Not Included
 
-This is a **technical framework**, not a turnkey solution.
-
 **Not included:**
-- Pre-configured prompts for specific industries
-- Training data or model fine-tuning
-- CRM integrations (Salesforce, HubSpot, etc.)
-- Deduplication logic (can be added)
-- Real-time webhook triggers (uses polling)
+- Industry-specific prompts  
+- CRM integrations  
+- Real-time webhooks (polling-based)  
+- Model fine-tuning  
 
-**What IS included:**
-- Complete Make.com scenario structure
-- OpenAI integration with structured output
-- Error handling (retries + controlled ignore)
-- Documented architecture and flow
-- Example scoring logic (adaptable)
-
-**For production deployment, clients typically need:**
-- Domain-specific prompt engineering
-- Integration into their stack (CRM/DB/ticketing)
-- Testing + calibration period
-- Documentation + handoff training
-
----
-
-## 💼 Why This Matters for Businesses
-
-**Traditional automation:**
-- Moves data from A → B
-- Cannot handle judgment calls
-- Fails on unstructured input
-
-**AI-only solutions:**
-- Unpredictable outputs
-- No audit trail
-- Black-box decision-making
-
-**This system:**
-- Combines AI judgment with rule-based execution
-- Handles messy real-world inputs
-- Provides transparency and logging
-- Scales across departments and use cases
-
-**Result:** Decision fatigue reduced, response time improved, evaluation consistency increased — without surrendering control to AI.
+**Included:**
+- Full Make.com scenario blueprint  
+- Structured OpenAI integration  
+- Error handling and retries  
+- Deduplication logic  
+- Example scoring rubric  
 
 ---
 
 ## Status & Future Enhancements
 
-Planned upgrades (typical next steps):
-- Add **deduplication** (Data Store keyed by job URL)
-- Add **routing logic** (e.g., Slack alert for Tier-1, queue Tier-2, skip below-target)
-- Swap input source from email → **job boards / ATS APIs**
-- Add **observability** (error log sheet, alerts, execution summaries)
-- Store results in a real DB (Postgres) for analytics at scale
+Possible next steps:
+
+- Route Tier-1 matches to Slack  
+- Add queueing for Tier-2  
+- Swap email input for ATS or job board APIs  
+- Add execution observability (error logs, alerts)  
+- Persist results to a database (Postgres)  
 
 ---
 
 ## Files
 
-- `JOB SEARCH SCEN.blueprint.json` — Make.com scenario blueprint export
-- `README.md` — this documentation
+- `JOB SEARCH SCEN.blueprint.json` — Make.com scenario export  
+- `README.md` — documentation  
+
+---
 
 ## 🚀 Quick Start
 
-**To deploy this scenario:**
+1. Import blueprint into Make.com  
+2. Connect Gmail, OpenAI, and Google Sheets  
+3. Customize scoring logic in **Set Variables (Context & Scoring Logic)**  
+4. Configure Gmail filter  
+5. Test with a sample email  
+6. Review results in Google Sheets  
 
-1. **Import blueprint** into Make.com
-2. **Connect accounts:**
-   - Gmail (inbox with target emails)
-   - OpenAI (API key required)
-   - Google Sheets (for logging)
-3. **Customize evaluation logic in Module 4 (Set Variables):**
-   - **`profile_context`** — Your background, experience, constraints
-   - **`scoring_instructions`** — How to evaluate (scoring approach, 1-10 scale)
-   - **`scoring_rubric`** — Tier/score definitions for your domain
-   - **`job_input`** / **`job_url`** — Usually no changes needed (auto-populated)
-4. **Configure Gmail filter in Module 1:**
-   - Update sender email if not LinkedIn (`jobalerts-noreply@linkedin.com`)
-   - Modify keyword filter for your use case (default: `automation remote`)
-   - Adjust check frequency if needed (default: every 2 hours)
-5. **Test with sample email**
-6. **Review results in Google Sheets**
-7. **Iterate on prompt based on accuracy**
+**Estimated setup time:** 30–60 minutes (excluding prompt tuning)
 
-**Estimated setup time:** 30-60 minutes (excluding prompt tuning)
+---
 
 ## 💰 Cost Estimate
 
-**Typical monthly costs for 50 evaluations:**
+~50 evaluations/month:
 
-- **Make.com:** Free tier (1,000 operations/month) or $9/month Core plan
-- **OpenAI API:** ~$0.05-0.15/month (GPT-4o-mini at ~$0.001/evaluation)
-- **Gmail/Sheets:** Free
-
-**Total:** $0.05-9.15/month depending on volume and Make.com tier.
-
-**Note:** Costs scale linearly with evaluation volume.
+- **Make.com:** Free tier or ~$9/month  
+- **OpenAI API:** ~$0.05–0.15/month  
+- **Gmail / Sheets:** Free
 
